@@ -7,7 +7,7 @@ const baseConfig = {
 const environments = {
   development: {
     ...baseConfig,
-    apiUrl: 'http://localhost:3000/dev/api',
+    apiUrl: 'https://stlogj8nj7.execute-api.us-east-1.amazonaws.com/dev/api/v1',
   },
   qa: {
     ...baseConfig,
