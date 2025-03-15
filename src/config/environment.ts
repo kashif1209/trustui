@@ -1,6 +1,9 @@
 // Base configuration for all environments
 const baseConfig = {
-  apiUrl: 'http://localhost:3000/dev/api',
+  apiUrl: 'http://localhost:3000/dev/api/v1',
+  razorpay: {
+    keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || '',
+  }
 };
 
 // Environment-specific configurations
@@ -8,6 +11,10 @@ const environments = {
   development: {
     ...baseConfig,
     apiUrl: 'https://stlogj8nj7.execute-api.us-east-1.amazonaws.com/dev/api/v1',
+    razorpay: {
+      ...baseConfig.razorpay,
+      keyId: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || 'rzp_test_yourtestkeyhere',
+    }
   },
   qa: {
     ...baseConfig,

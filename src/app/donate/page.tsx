@@ -5,6 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import apiService from '@/services/apiService';
 import { config } from '@/config/environment';
+import Script from 'next/script';
 
 // Add CSS for the checkmark animation
 const checkmarkAnimation = `
@@ -23,16 +24,30 @@ const checkmarkAnimation = `
   }
 `;
 
+// Define Razorpay interface
+declare global {
+  interface Window {
+    Razorpay: any;
+  }
+}
+
 export default function DonatePage() {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     amount: '',
-    paymentMethod: 'card',
     description: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState<{ success?: boolean; message?: string } | null>(null);
+  const [razorpayLoaded, setRazorpayLoaded] = useState(false);
+
+  useEffect(() => {
+    // Check if Razorpay is loaded
+    if (window.Razorpay) {
+      setRazorpayLoaded(true);
+    }
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { id, value } = e.target;
@@ -49,34 +64,130 @@ export default function DonatePage() {
     }));
   };
 
+  const initializeRazorpay = () => {
+    return new Promise((resolve) => {
+      console.log("Initializing Razorpay----------------");
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => {
+        resolve(true);
+      };
+      script.onerror = () => {
+        resolve(false);
+      };
+      document.body.appendChild(script);
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setSubmitResult(null);
 
     try {
-      await apiService.submitDonation(formData);
+      // Initialize Razorpay if not already loaded
+      if (!window.Razorpay) {
+        await initializeRazorpay();
+      }
+
+      // Create donation through API
+      const donationData = {
+        name: formData.name,
+        email: formData.email,
+        amount: Number(formData.amount),
+        description: formData.description
+      };
+
+      const response = await apiService.submitDonation(donationData);
       
-      setSubmitResult({
-        success: true,
-        message: 'Thank you for your donation! Your contribution will make a difference.'
+      if (!response || !response.data || !response.data.razorpay) {
+        throw new Error('Invalid response from server');
+      }
+
+      // Extract data from response
+      const donation = response.data.donation;
+      const razorpayData = response.data.razorpay;
+
+      // Initialize Razorpay payment
+      const options = {
+        key: razorpayData.key || config.razorpay.keyId,
+        amount: razorpayData.amount,
+        currency: razorpayData.currency || 'INR',
+        name: 'Finsbury Trust',
+        description: 'Donation',
+        order_id: razorpayData.orderId,
+        handler: async function(response: any) {
+          try {
+            // Verify payment with backend
+            const verificationData = {
+              razorpayOrderId: response.razorpay_order_id,
+              razorpayPaymentId: response.razorpay_payment_id,
+              razorpaySignature: response.razorpay_signature,
+              donationId: donation.id
+            };
+            
+            await apiService.verifyDonationPayment(verificationData);
+            
+            setSubmitResult({
+              success: true,
+              message: 'Thank you for your donation! Your contribution will make a difference.'
+            });
+            
+            // Reset form
+            setFormData({
+              name: '',
+              email: '',
+              amount: '',
+              description: ''
+            });
+          } catch (error) {
+            console.error('Error verifying payment:', error);
+            setSubmitResult({
+              success: false,
+              message: error instanceof Error ? error.message : 'There was an error processing your payment verification. Please contact support.'
+            });
+          } finally {
+            setIsSubmitting(false);
+          }
+        },
+        modal: {
+          ondismiss: function() {
+            console.log('Checkout form closed');
+            setIsSubmitting(false);
+          }
+        },
+        prefill: {
+          name: formData.name,
+          email: formData.email
+        },
+        theme: {
+          color: "#2563EB"
+        }
+      };
+
+      // Add this to handle the case where Razorpay isn't loaded properly
+      if (!window.Razorpay) {
+        throw new Error("Razorpay SDK failed to load. Please check your internet connection.");
+      }
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.on('payment.failed', function (response: any) {
+        console.error('Payment failed:', response.error);
+        setSubmitResult({
+          success: false,
+          message: `Payment failed: ${response.error.description}`
+        });
+        setIsSubmitting(false);
       });
       
-      // Reset form
-      setFormData({
-        name: '',
-        email: '',
-        amount: '',
-        paymentMethod: 'card',
-        description: ''
-      });
+      razorpay.open();
+      
     } catch (error) {
-      console.error('Error submitting donation:', error);
+      console.error('Error initiating donation:', error);
       setSubmitResult({
         success: false,
         message: error instanceof Error ? error.message : 'There was an error processing your donation. Please try again.'
       });
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -85,6 +196,12 @@ export default function DonatePage() {
     <div className="min-h-screen">
       {/* Add the style tag for the animation */}
       <style jsx>{checkmarkAnimation}</style>
+      
+      {/* Load Razorpay script */}
+      <Script
+        src="https://checkout.razorpay.com/v1/checkout.js"
+        onLoad={() => setRazorpayLoaded(true)}
+      />
 
       {/* Hero Section */}
       <div className="bg-blue-800 text-white py-20">
@@ -218,20 +335,17 @@ export default function DonatePage() {
                 </div>
               </div>
               
-              {/* Payment Method */}
-              <div>
-                <h3 className="text-lg font-bold text-gray-800 mb-4">Payment Method</h3>
-                <select 
-                  id="paymentMethod"
-                  value={formData.paymentMethod}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800"
-                >
-                  <option value="card">Credit/Debit Card</option>
-                  <option value="paypal">PayPal</option>
-                  <option value="UPI">UPI</option>
-                  <option value="netbanking">Net Banking</option>
-                </select>
+              {/* Accepted Payment Methods */}
+              <div className="mt-4">
+                <p className="text-sm text-gray-600 mb-2">We accept:</p>
+                <div className="flex flex-wrap gap-2">
+                  <div className="bg-gray-100 rounded px-3 py-1 text-xs text-gray-700">Visa</div>
+                  <div className="bg-gray-100 rounded px-3 py-1 text-xs text-gray-700">Mastercard</div>
+                  <div className="bg-gray-100 rounded px-3 py-1 text-xs text-gray-700">RuPay</div>
+                  <div className="bg-gray-100 rounded px-3 py-1 text-xs text-gray-700">UPI</div>
+                  <div className="bg-gray-100 rounded px-3 py-1 text-xs text-gray-700">Google Pay</div>
+                  <div className="bg-gray-100 rounded px-3 py-1 text-xs text-gray-700">PhonePe</div>
+                </div>
               </div>
               
               {/* Additional Comments */}
