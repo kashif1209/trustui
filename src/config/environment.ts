@@ -28,21 +28,19 @@ const environments = {
 
 // Determine current environment
 const getEnvironment = () => {
-  // Use NEXT_PUBLIC_APP_ENV if defined, otherwise fallback based on NODE_ENV
-  const appEnv = process.env.NEXT_PUBLIC_APP_ENV || process.env.NODE_ENV;
+  // Use NEXT_PUBLIC_DEPLOY_ENV to determine which config to use
+  // This is separate from NODE_ENV which should remain standard
+  const deployEnv = process.env.NEXT_PUBLIC_DEPLOY_ENV;
   
-  switch (appEnv) {
-    case 'production':
-      return 'production';
-    case 'qa':
-      return 'qa';
-    default:
-      return 'development';
-  }
+  if (deployEnv === 'qa') return 'qa';
+  if (deployEnv === 'production') return 'production';
+  
+  // Default to development
+  return 'development';
 };
 
 // Export the configuration for the current environment
 const currentEnv = getEnvironment();
-console.log(`Running in ${currentEnv} environment`);
+console.log(`Running with ${currentEnv} configuration`);
 
 export const config = environments[currentEnv]; 
